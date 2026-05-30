@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>🐄 Qurban Scanner</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    #reader video { object-fit: cover; border-radius: 0.5rem; }
+    #reader { border: none !important; }
+    .tab-active { border-bottom: 2px solid #16a34a; color: #16a34a; font-weight: bold; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased h-screen flex flex-col">
+
+  <header class="bg-green-600 text-white p-4 shadow-md flex justify-between items-center z-10 relative">
+    <h1 class="text-xl font-bold">🐄 Qurban Scanner</h1>
+    <span id="header-status" class="w-3 h-3 rounded-full bg-red-400 border border-white"></span>
+  </header>
+
+  <nav class="bg-white shadow flex justify-around text-sm text-gray-500">
+    <button onclick="switchTab('scan')" id="tab-scan" class="tab-active py-3 px-4 w-full focus:outline-none">SCAN</button>
+    <button onclick="switchTab('stats')" id="tab-stats" class="py-3 px-4 w-full focus:outline-none">STATS</button>
+    <button onclick="switchTab('admin')" id="tab-admin" class="py-3 px-4 w-full focus:outline-none">ADMIN</button>
+  </nav>
+
+  <main class="flex-1 overflow-y-auto p-4 relative">
+    
+    <div id="loader" class="hidden absolute inset-0 bg-white/80 z-50 flex items-center justify-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+    </div>
+
+    <section id="sec-scan" class="space-y-4">
+      <div class="bg-white p-2 rounded-lg shadow-sm border">
+        <div id="reader" class="w-full bg-black rounded-lg min-h-[300px]"></div>
+      </div>
+      
+      <div class="flex gap-2">
+        <button id="btn-start" onclick="startCamera()" class="flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold shadow active:bg-green-700">Mulai Kamera</button>
+        <button id="btn-stop" onclick="stopCamera()" class="hidden flex-1 bg-red-500 text-white py-3 rounded-lg font-semibold shadow active:bg-red-600">Stop</button>
+      </div>
+
+      <div id="scan-result" class="hidden p-4 rounded-lg text-center font-bold text-lg border"></div>
+
+      <div class="mt-4 border-t pt-4">
+        <label class="block text-sm font-semibold mb-2">Input Manual (QR Rusak)</label>
+        <div class="flex gap-2">
+          <input type="text" id="manual-code" placeholder="QRB-0000001" class="flex-1 border p-2 rounded focus:ring-2 focus:ring-green-500 outline-none uppercase">
+          <button onclick="submitManual()" class="bg-gray-800 text-white px-4 py-2 rounded font-semibold">✓ CEK</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="sec-stats" class="hidden space-y-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-white p-4 rounded-lg shadow border text-center">
+          <div class="text-sm text-gray-500">Total Kupon</div>
+          <div id="stat-total" class="text-3xl font-bold">-</div>
+        </div>
+        <div class="bg-green-50 p-4 rounded-lg shadow border border-green-200 text-center">
+          <div class="text-sm text-green-700">Telah Digunakan</div>
+          <div id="stat-used" class="text-3xl font-bold text-green-700">-</div>
+        </div>
+        <div class="col-span-2 bg-blue-50 p-4 rounded-lg shadow border border-blue-200 text-center">
+          <div class="text-sm text-blue-700">Sisa Kupon</div>
+          <div id="stat-sisa" class="text-4xl font-bold text-blue-700">-</div>
+        </div>
+      </div>
+      <button onclick="fetchStats()" class="w-full bg-white border border-gray-300 py-3 rounded-lg font-semibold text-gray-700 shadow-sm">Segarkan Data</button>
+    </section>
+
+    <section id="sec-admin" class="hidden space-y-6">
+      
+      <div class="bg-white p-4 rounded-lg shadow border">
+        <h3 class="font-bold text-gray-700 mb-2">Konfigurasi Sistem</h3>
+        <label class="block text-xs text-gray-500 mb-1">URL Google Apps Script (Web App)</label>
+        <input type="text" id="api-url" class="w-full border p-2 rounded text-sm mb-2" placeholder="https://script.google.com/macros/s/.../exec">
+        <button onclick="saveConfig()" class="w-full bg-gray-800 text-white py-2 rounded text-sm font-semibold">Simpan Konfigurasi</button>
+        
+        <div class="mt-4 pt-4 border-t flex justify-between items-center text-sm">
+          <span class="text-gray-500">Scanner ID:</span>
+          <span id="scanner-id" class="font-mono bg-gray-100 px-2 py-1 rounded text-xs"></span>
+        </div>
+      </div>
+
+      <div class="bg-white p-4 rounded-lg shadow border space-y-3">
+        <h3 class="font-bold text-gray-700">Manajemen Data (Akses Admin)</h3>
+        
+        <label class="block text-xs text-red-500 font-semibold mb-1">Otorisasi PIN Admin</label>
+        <input type="password" id="input-admin-pin" class="w-full border p-2 rounded text-sm mb-3 focus:border-red-500 outline-none" placeholder="Masukkan PIN Admin">
+
+        <button onclick="adminAction('init')" class="w-full border border-gray-300 py-2 rounded text-sm font-semibold hover:bg-gray-50">Inisialisasi Google Sheets</button>
+        
+        <div class="border-t pt-3 space-y-2">
+          <label class="block text-xs text-gray-500">Generate Kupon Massal</label>
+          <div class="flex gap-2">
+            <input type="number" id="bulk-amount" placeholder="Jumlah (mis: 500)" class="w-1/2 border p-2 rounded text-sm">
+            <button onclick="adminAction('bulk')" class="w-1/2 bg-blue-600 text-white py-2 rounded text-sm font-semibold">Generate</button>
+          </div>
+        </div>
+
+        <div class="border-t pt-3 space-y-2">
+          <label class="block text-xs text-gray-500">Tambah Kupon Manual</label>
+          <div class="flex gap-2">
+            <input type="text" id="add-manual-code" placeholder="QRB-SISA-001" class="w-1/2 border p-2 rounded text-sm uppercase">
+            <button onclick="adminAction('manual')" class="w-1/2 bg-gray-600 text-white py-2 rounded text-sm font-semibold">+ Tambah</button>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script>
+    let html5QrCode;
+    let isScanning = false;
+    let scanCooldown = false;
+    let apiUrl = localStorage.getItem('qurban_api_url') || '';
+    
+    let scannerId = localStorage.getItem('qurban_scanner_id');
+    if (!scannerId) {
+      scannerId = 'SCANNER-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+      localStorage.setItem('qurban_scanner_id', scannerId);
+    }
+    document.getElementById('scanner-id').innerText = scannerId;
+    document.getElementById('api-url').value = apiUrl;
+    updateStatusIndicator();
+
+    function updateStatusIndicator() {
+      const indicator = document.getElementById('header-status');
+      if (apiUrl && apiUrl.startsWith('https://script.google.com')) {
+        indicator.classList.remove('bg-red-400');
+        indicator.classList.add('bg-green-400');
+      } else {
+        indicator.classList.add('bg-red-400');
+        indicator.classList.remove('bg-green-400');
+      }
+    }
+
+    function switchTab(tabId) {
+      ['scan', 'stats', 'admin'].forEach(id => {
+        document.getElementById('sec-' + id).classList.add('hidden');
+        document.getElementById('tab-' + id).classList.remove('tab-active');
+      });
+      document.getElementById('sec-' + tabId).classList.remove('hidden');
+      document.getElementById('tab-' + tabId).classList.add('tab-active');
+      
+      if (tabId === 'stats') fetchStats();
+      if (tabId !== 'scan' && isScanning) stopCamera();
+    }
+
+    function saveConfig() {
+      const url = document.getElementById('api-url').value.trim();
+      if (!url.startsWith('https://script.google.com')) {
+        alert('URL tidak valid. Harus dimulai dengan https://script.google.com');
+        return;
+      }
+      localStorage.setItem('qurban_api_url', url);
+      apiUrl = url;
+      updateStatusIndicator();
+      alert('Konfigurasi disimpan.');
+    }
+
+    async function apiCall(action, data = {}) {
+      if (!apiUrl) {
+        alert('Harap masukkan URL Apps Script di tab Admin terlebih dahulu.');
+        return null;
+      }
+      
+      showLoader(true);
+      const payload = { action, scannerId, ...data };
+      
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        showLoader(false);
+        return result;
+      } catch (error) {
+        showLoader(false);
+        alert('Gagal menghubungi server. Periksa koneksi atau URL Apps Script.');
+        console.error(error);
+        return null;
+      }
+    }
+
+    function startCamera() {
+      if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+      
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+      
+      html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+        .then(() => {
+          isScanning = true;
+          document.getElementById('btn-start').classList.add('hidden');
+          document.getElementById('btn-stop').classList.remove('hidden');
+          resetResultUI();
+        })
+        .catch(err => {
+          alert("Akses kamera ditolak atau kamera tidak ditemukan.");
+          console.error(err);
+        });
+    }
+
+    function stopCamera() {
+      if (html5QrCode && isScanning) {
+        html5QrCode.stop().then(() => {
+          isScanning = false;
+          document.getElementById('btn-start').classList.remove('hidden');
+          document.getElementById('btn-stop').classList.add('hidden');
+        });
+      }
+    }
+
+    async function onScanSuccess(decodedText) {
+      if (scanCooldown) return;
+      
+      if(html5QrCode) html5QrCode.pause();
+      scanCooldown = true;
+      
+      await processQRCode(decodedText);
+      
+      setTimeout(() => {
+        scanCooldown = false;
+        resetResultUI();
+        if(html5QrCode && isScanning) html5QrCode.resume();
+      }, 3000);
+    }
+
+    function submitManual() {
+      const input = document.getElementById('manual-code');
+      const code = input.value.trim().toUpperCase();
+      if (!code) return;
+      processQRCode(code);
+      input.value = '';
+    }
+
+    async function processQRCode(code) {
+      const res = await apiCall('scan', { code });
+      if (!res) {
+        if(html5QrCode && isScanning) html5QrCode.resume();
+        scanCooldown = false;
+        return;
+      }
+
+      const resultBox = document.getElementById('scan-result');
+      resultBox.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'border-green-400', 'bg-red-100', 'text-red-800', 'border-red-400', 'bg-yellow-100', 'text-yellow-800', 'border-yellow-400');
+      
+      let classes = [];
+      if (res.status === 'KUPON VALID') {
+        classes = ['bg-green-100', 'text-green-800', 'border-green-400'];
+      } else if (res.status === 'SUDAH DIGUNAKAN') {
+        classes = ['bg-red-100', 'text-red-800', 'border-red-400'];
+      } else {
+        classes = ['bg-yellow-100', 'text-yellow-800', 'border-yellow-400'];
+      }
+      
+      resultBox.classList.add(...classes);
+      resultBox.innerHTML = `
+        <div class="text-sm font-normal text-gray-600 mb-1">${code}</div>
+        <div class="text-2xl mb-1">${res.status}</div>
+        <div class="text-sm font-normal">${res.message}</div>
+      `;
+    }
+
+    function resetResultUI() {
+      document.getElementById('scan-result').classList.add('hidden');
+    }
+
+    async function fetchStats() {
+      const res = await apiCall('stats');
+      if (res) {
+        document.getElementById('stat-total').innerText = res.total;
+        document.getElementById('stat-used').innerText = res.digunakan;
+        document.getElementById('stat-sisa').innerText = res.sisa;
+      }
+    }
+
+    async function adminAction(actionType) {
+      const pin = document.getElementById('input-admin-pin').value;
+      if (!pin) return alert('PIN Admin wajib diisi untuk tindakan ini.');
+
+      let dataPayload = { adminPin: pin };
+
+      if (actionType === 'bulk') {
+        const amt = document.getElementById('bulk-amount').value;
+        if (!amt || amt <= 0) return alert('Masukkan jumlah yang valid');
+        if (!confirm(`Yakin generate ${amt} kupon baru?`)) return;
+        dataPayload.jumlah = amt;
+      } 
+      else if (actionType === 'manual') {
+        const code = document.getElementById('add-manual-code').value.trim().toUpperCase();
+        if (!code) return alert('Masukkan kode kupon');
+        dataPayload.code = code;
+      }
+
+      const res = await apiCall(actionType, dataPayload);
+      
+      if (res) {
+        alert(res.message);
+        if (res.success) {
+          if (actionType === 'bulk') document.getElementById('bulk-amount').value = '';
+          if (actionType === 'manual') document.getElementById('add-manual-code').value = '';
+        } else {
+          if (res.message.includes('Ditolak')) document.getElementById('input-admin-pin').value = '';
+        }
+      }
+    }
+
+    function showLoader(show) {
+      document.getElementById('loader').classList.toggle('hidden', !show);
+    }
+
+    if ('serviceWorker' in navigator) {
+      const swCode = `self.addEventListener('fetch', function() {});`;
+      const blob = new Blob([swCode], {type: 'application/javascript'});
+      const swUrl = URL.createObjectURL(blob);
+      navigator.serviceWorker.register(swUrl);
+    }
+  </script>
+</body>
+</html>
