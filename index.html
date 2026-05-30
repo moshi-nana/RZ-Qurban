@@ -8,11 +8,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <style>
-    #reader video { object-fit: cover; border-radius: 0.5rem; }
-    #reader { border: none !important; }
     .tab-active { border-bottom: 2px solid #16a34a; color: #16a34a; font-weight: bold; }
-    /* Animasi visual saat cooldown aktif */
-    .scanning-locked { opacity: 0.6; filter: grayscale(50%); transition: all 0.3s; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased h-screen flex flex-col">
@@ -30,21 +26,28 @@
 
   <main class="flex-1 overflow-y-auto p-4 relative">
     
-    <div id="loader" class="hidden absolute inset-0 bg-white/80 z-50 flex items-center justify-center">
-      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+    <div id="loader" class="hidden absolute inset-0 bg-white/80 z-50 flex flex-col items-center justify-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mb-2"></div>
+      <p class="text-sm font-semibold text-gray-600" id="loader-text">Memproses...</p>
     </div>
 
+    <div id="reader-dummy" class="hidden"></div>
+
     <section id="sec-scan" class="space-y-4">
-      <div class="bg-white p-2 rounded-lg shadow-sm border relative">
-        <div id="reader" class="w-full bg-black rounded-lg min-h-[300px] overflow-hidden"></div>
-      </div>
       
-      <div class="flex gap-2">
-        <button id="btn-start" onclick="startCamera()" class="flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold shadow active:bg-green-700">Mulai Kamera</button>
-        <button id="btn-stop" onclick="stopCamera()" class="hidden flex-1 bg-red-500 text-white py-3 rounded-lg font-semibold shadow active:bg-red-600">Stop</button>
+      <div class="bg-white p-6 rounded-lg shadow border text-center">
+        <div class="mb-4 text-5xl">📷</div>
+        <h2 class="text-lg font-bold text-gray-700 mb-2">Scan dengan Kamera</h2>
+        <p class="text-xs text-gray-500 mb-6">Ambil foto QR Code secara langsung. Cepat, stabil, dan bebas error.</p>
+        
+        <input type="file" id="qr-input-file" accept="image/*" capture="environment" class="hidden" onchange="handleImageScan(event)">
+        
+        <button onclick="document.getElementById('qr-input-file').click()" class="w-full bg-green-600 text-white py-4 rounded-lg font-bold text-lg shadow-md active:bg-green-700 hover:bg-green-700 transition">
+          BUKA KAMERA
+        </button>
       </div>
 
-      <div id="scan-result" class="hidden p-4 rounded-lg text-center font-bold text-lg border"></div>
+      <div id="scan-result" class="hidden p-4 rounded-lg text-center font-bold text-lg border shadow-sm"></div>
 
       <div class="mt-4 border-t pt-4">
         <label class="block text-sm font-semibold mb-2">Input Manual (QR Rusak)</label>
@@ -127,16 +130,17 @@
   </main>
 
   <script>
-    let html5QrCode;
-    let isScanning = false;
-    let scanCooldown = false;
-    let apiUrl = localStorage.getItem('qurban_api_url') || '';
+    // Inisialisasi scanner satu kali secara global untuk mode file
+    let html5QrCode = new Html5Qrcode("reader-dummy");
     
+    let apiUrl = localStorage.getItem('qurban_api_url') || '';
     let scannerId = localStorage.getItem('qurban_scanner_id');
+    
     if (!scannerId) {
       scannerId = 'SCANNER-' + Math.random().toString(36).substr(2, 6).toUpperCase();
       localStorage.setItem('qurban_scanner_id', scannerId);
     }
+    
     document.getElementById('scanner-id').innerText = scannerId;
     document.getElementById('api-url').value = apiUrl;
     updateStatusIndicator();
@@ -152,12 +156,7 @@
       }
     }
 
-    // Perbaikan: Diubah menjadi async untuk menunggu pembersihan hardware kamera selesai
-    async function switchTab(tabId) {
-      if (tabId !== 'scan' && isScanning) {
-        await stopCamera(); 
-      }
-
+    function switchTab(tabId) {
       ['scan', 'stats', 'admin'].forEach(id => {
         document.getElementById('sec-' + id).classList.add('hidden');
         document.getElementById('tab-' + id).classList.remove('tab-active');
@@ -166,11 +165,7 @@
       document.getElementById('tab-' + tabId).classList.add('tab-active');
       
       if (tabId === 'stats') fetchStats();
-      
-      // Otomatis jalankan kamera kembali jika masuk ke tab scan
-      if (tabId === 'scan') {
-        startCamera();
-      }
+      if (tabId === 'scan') resetResultUI();
     }
 
     function saveConfig() {
@@ -191,7 +186,7 @@
         return null;
       }
       
-      showLoader(true);
+      showLoader(true, 'Menghubungi Server...');
       const payload = { action, scannerId, ...data };
       
       try {
@@ -205,74 +200,30 @@
       } catch (error) {
         showLoader(false);
         alert('Gagal menghubungi server. Periksa koneksi atau URL Apps Script.');
-        console.error(error);
         return null;
       }
     }
 
-    function startCamera() {
-      if (html5QrCode) {
-        try { html5QrCode.clear(); } catch(e) {}
+    // FUNGSI BARU: Membaca QR dari foto jepretan kamera
+    async function handleImageScan(event) {
+      if (event.target.files.length === 0) return;
+      const file = event.target.files[0];
+
+      resetResultUI();
+      showLoader(true, 'Membaca Foto...');
+
+      try {
+        // Parameter true = minta library untuk mencoba memperbaiki orientasi/kecerahan foto
+        const decodedText = await html5QrCode.scanFile(file, true);
+        showLoader(false);
+        await processQRCode(decodedText);
+      } catch (err) {
+        showLoader(false);
+        alert("Gagal membaca QR Code dari foto ini. Pastikan gambar jelas, terang, dan tidak blur.");
       }
-      document.getElementById('reader').innerHTML = '';
-      html5QrCode = new Html5Qrcode("reader");
-      
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-      
-      html5QrCode.start({ facingMode: { exact: "environment" } }, config, onScanSuccess)
-        .catch(() => {
-          return html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
-        })
-        .then(() => {
-          isScanning = true;
-          document.getElementById('btn-start').classList.add('hidden');
-          document.getElementById('btn-stop').classList.remove('hidden');
-          resetResultUI();
-        })
-        .catch(err => {
-          alert("Akses kamera ditolak. Izinkan kamera di setelan browser Anda.");
-          console.error(err);
-        });
-    }
 
-    // Perbaikan: Mengembalikan Promise agar pemutus stream diselesaikan sebelum DOM berubah
-    function stopCamera() {
-      return new Promise((resolve) => {
-        if (html5QrCode && isScanning) {
-          html5QrCode.stop().then(() => {
-            isScanning = false;
-            document.getElementById('btn-start').classList.remove('hidden');
-            document.getElementById('btn-stop').classList.add('hidden');
-            html5QrCode.clear();
-            html5QrCode = null; 
-            resolve();
-          }).catch(err => {
-            console.error("Gagal menghentikan kamera", err);
-            isScanning = false;
-            document.getElementById('btn-start').classList.remove('hidden');
-            document.getElementById('btn-stop').classList.add('hidden');
-            html5QrCode = null; 
-            resolve();
-          });
-        } else {
-          resolve();
-        }
-      });
-    }
-
-    async function onScanSuccess(decodedText) {
-      if (scanCooldown) return; 
-      
-      scanCooldown = true;
-      document.getElementById('reader').classList.add('scanning-locked');
-      
-      await processQRCode(decodedText);
-      
-      setTimeout(() => {
-        scanCooldown = false;
-        document.getElementById('reader').classList.remove('scanning-locked');
-        resetResultUI();
-      }, 3500);
+      // Reset value input supaya foto berikutnya tetap memicu event onchange
+      event.target.value = "";
     }
 
     function submitManual() {
@@ -285,11 +236,7 @@
 
     async function processQRCode(code) {
       const res = await apiCall('scan', { code });
-      if (!res) {
-        scanCooldown = false;
-        document.getElementById('reader').classList.remove('scanning-locked');
-        return;
-      }
+      if (!res) return;
 
       const resultBox = document.getElementById('scan-result');
       resultBox.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'border-green-400', 'bg-red-100', 'text-red-800', 'border-red-400', 'bg-yellow-100', 'text-yellow-800', 'border-yellow-400');
@@ -369,8 +316,9 @@
       }
     }
 
-    function showLoader(show) {
+    function showLoader(show, text = 'Memproses...') {
       document.getElementById('loader').classList.toggle('hidden', !show);
+      document.getElementById('loader-text').innerText = text;
     }
 
     if ('serviceWorker' in navigator) {
