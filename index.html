@@ -109,9 +109,14 @@
           </div>
         </div>
 
-        <div class="border-t pt-3 mt-3">
-          <button onclick="adminAction('archive')" class="w-full bg-yellow-500 text-white py-2 rounded text-sm font-semibold hover:bg-yellow-600">Arsipkan Kupon Digunakan</button>
-          <p class="text-[10px] text-gray-400 mt-1 text-center">Memindahkan kupon berstatus "Digunakan" ke sheet Arsip untuk membersihkan baris.</p>
+        <div class="border-t pt-3 mt-3 grid grid-cols-2 gap-2">
+          <div class="col-span-2">
+            <button onclick="adminAction('archive')" class="w-full bg-yellow-500 text-white py-2 rounded text-sm font-semibold hover:bg-yellow-600">Arsipkan Kupon Digunakan</button>
+          </div>
+          <div class="col-span-2 mt-2">
+            <button onclick="adminAction('reset')" class="w-full bg-red-600 text-white py-2 rounded text-sm font-semibold hover:bg-red-700">⚠️ Reset Seluruh Sistem</button>
+            <p class="text-[10px] text-gray-400 mt-1 text-center">Hapus semua riwayat, kupon, dan arsip untuk mulai dari 0.</p>
+          </div>
         </div>
       </div>
 
@@ -306,6 +311,16 @@
       else if (actionType === 'archive') {
         if (!confirm(`Yakin memindahkan semua kupon "Digunakan" ke sheet Arsip?`)) return;
       }
+      else if (actionType === 'reset') {
+        const confirm1 = confirm(`PERINGATAN BAHAYA!\n\nAnda yakin ingin MENGHAPUS SEMUA DATA KUPON, LOG, DAN ARSIP? Data yang dihapus tidak bisa dikembalikan.`);
+        if (!confirm1) return;
+        
+        const confirm2 = prompt(`Ketik "RESET" (tanpa tanda kutip huruf besar semua) untuk melanjutkan penghapusan:`);
+        if (confirm2 !== "RESET") {
+          alert('Reset dibatalkan.');
+          return;
+        }
+      }
 
       const res = await apiCall(actionType, dataPayload);
       
@@ -314,6 +329,7 @@
         if (res.success) {
           if (actionType === 'bulk') document.getElementById('bulk-amount').value = '';
           if (actionType === 'manual') document.getElementById('add-manual-code').value = '';
+          if (actionType === 'reset') fetchStats();
         } else {
           if (res.message.includes('Ditolak')) document.getElementById('input-admin-pin').value = '';
         }
