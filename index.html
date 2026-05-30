@@ -11,6 +11,8 @@
     #reader video { object-fit: cover; border-radius: 0.5rem; }
     #reader { border: none !important; }
     .tab-active { border-bottom: 2px solid #16a34a; color: #16a34a; font-weight: bold; }
+    /* Animasi visual saat cooldown aktif */
+    .scanning-locked { opacity: 0.6; filter: grayscale(50%); transition: all 0.3s; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased h-screen flex flex-col">
@@ -33,8 +35,8 @@
     </div>
 
     <section id="sec-scan" class="space-y-4">
-      <div class="bg-white p-2 rounded-lg shadow-sm border">
-        <div id="reader" class="w-full bg-black rounded-lg min-h-[300px]"></div>
+      <div class="bg-white p-2 rounded-lg shadow-sm border relative">
+        <div id="reader" class="w-full bg-black rounded-lg min-h-[300px] overflow-hidden"></div>
       </div>
       
       <div class="flex gap-2">
@@ -212,7 +214,7 @@
           resetResultUI();
         })
         .catch(err => {
-          alert("Akses kamera ditolak atau kamera tidak ditemukan.");
+          alert("Akses kamera ditolak. Izinkan kamera di setelan browser Anda.");
           console.error(err);
         });
     }
@@ -223,23 +225,29 @@
           isScanning = false;
           document.getElementById('btn-start').classList.remove('hidden');
           document.getElementById('btn-stop').classList.add('hidden');
+          // Bersihkan feed video UI secara total
+          html5QrCode.clear(); 
+        }).catch(err => {
+          console.error("Gagal menghentikan kamera", err);
         });
       }
     }
 
+    // MODIFIKASI: Kamera tetap merekam terus, hanya input datanya yang diblokir oleh logika
     async function onScanSuccess(decodedText) {
-      if (scanCooldown) return;
+      if (scanCooldown) return; // Abaikan semua scan tambahan jika sedang memproses
       
-      if(html5QrCode) html5QrCode.pause();
       scanCooldown = true;
+      document.getElementById('reader').classList.add('scanning-locked');
       
       await processQRCode(decodedText);
       
+      // Jeda 3.5 detik sebelum menerima pemindaian baru
       setTimeout(() => {
         scanCooldown = false;
+        document.getElementById('reader').classList.remove('scanning-locked');
         resetResultUI();
-        if(html5QrCode && isScanning) html5QrCode.resume();
-      }, 3000);
+      }, 3500);
     }
 
     function submitManual() {
@@ -253,8 +261,8 @@
     async function processQRCode(code) {
       const res = await apiCall('scan', { code });
       if (!res) {
-        if(html5QrCode && isScanning) html5QrCode.resume();
         scanCooldown = false;
+        document.getElementById('reader').classList.remove('scanning-locked');
         return;
       }
 
