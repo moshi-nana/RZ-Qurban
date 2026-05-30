@@ -130,7 +130,6 @@
   </main>
 
   <script>
-    // Inisialisasi scanner satu kali secara global untuk mode file
     let html5QrCode = new Html5Qrcode("reader-dummy");
     
     let apiUrl = localStorage.getItem('qurban_api_url') || '';
@@ -204,25 +203,68 @@
       }
     }
 
-    // FUNGSI BARU: Membaca QR dari foto jepretan kamera
+    // FUNGSI BARU: Preprocessing gambar via Canvas API
+    function optimizeImage(file) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+          // Maksimal dimensi gambar (Pixel)
+          const MAX_DIMENSION = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          // Hitung rasio untuk resize
+          if (width > height && width > MAX_DIMENSION) {
+            height *= MAX_DIMENSION / width;
+            width = MAX_DIMENSION;
+          } else if (height > MAX_DIMENSION) {
+            width *= MAX_DIMENSION / height;
+            height = MAX_DIMENSION;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          // Terapkan filter Grayscale 100% dan Contrast 120%
+          ctx.filter = 'grayscale(100%) contrast(120%)';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Konversi kembali ke File JPEG terkompresi
+          canvas.toBlob((blob) => {
+            const optimizedFile = new File([blob], "optimized.jpg", { type: "image/jpeg" });
+            resolve(optimizedFile);
+          }, 'image/jpeg', 0.9);
+        };
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
     async function handleImageScan(event) {
       if (event.target.files.length === 0) return;
       const file = event.target.files[0];
 
       resetResultUI();
-      showLoader(true, 'Membaca Foto...');
+      showLoader(true, 'Mengoptimalkan Gambar...');
 
       try {
-        // Parameter true = minta library untuk mencoba memperbaiki orientasi/kecerahan foto
-        const decodedText = await html5QrCode.scanFile(file, true);
+        // 1. Jalankan proses optimasi gambar
+        const optimizedFile = await optimizeImage(file);
+        
+        showLoader(true, 'Membaca QR...');
+
+        // 2. Scan file yang sudah di-resize dan difilter
+        const decodedText = await html5QrCode.scanFile(optimizedFile, true);
+        
         showLoader(false);
         await processQRCode(decodedText);
       } catch (err) {
         showLoader(false);
-        alert("Gagal membaca QR Code dari foto ini. Pastikan gambar jelas, terang, dan tidak blur.");
+        alert("Gagal membaca QR Code. Pastikan foto fokus pada QR dan tidak blur.");
       }
 
-      // Reset value input supaya foto berikutnya tetap memicu event onchange
       event.target.value = "";
     }
 
